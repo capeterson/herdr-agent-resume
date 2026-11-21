@@ -1142,7 +1142,20 @@ def after(code, env=None):
         return None
     log("failed", terminal=term, agent=label["agent"], session=label["session"], code=code)
     return (f"agent-resume: {label['agent']} exited right away (code {code}), so session "
-            f"{label['session']} didn't come back. Ctrl+Shift+R tries again.")
+            f"{label['session']} didn't come back. {retry_hint()}")
+
+
+def retry_hint():
+    """How to run the pass again: the shortcut the installer bound, if any."""
+    key = "ctrl-shift-r"
+    try:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".agent-resume-install.json")) as f:
+            key = json.load(f).get("key", key)
+    except (OSError, ValueError, AttributeError):
+        pass
+    if isinstance(key, str) and key:
+        return "+".join(p.capitalize() if len(p) > 1 else p.upper() for p in key.split("-")) + " tries again."
+    return f"`python3 '{os.path.abspath(__file__)}' resume` tries again."
 
 
 # ---------------------------------------------------------------- CLI

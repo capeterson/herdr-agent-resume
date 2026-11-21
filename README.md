@@ -48,7 +48,7 @@ python3 herdr-agent-resume/scripts/install.py
 
 The installer:
 - copies `mods/agent-resume/` to `~/.config/herdr-app/mods/` (after `herdr-app check`);
-- binds Ctrl+Shift+R to `mod.open:agent-resume` in `keys.json`, refusing a key already in use;
+- binds Ctrl+Shift+R to `mod.open:agent-resume` in `keys.json`, refusing a key already in use. `--key ctrl-shift-u` picks another, `--key none` binds none (with `--auto` the shortcut is only a fallback); `--update` keeps the choice;
 - appends one session hook after the hooks already there, backing each file up to `~/.config/herdr-app/backups/agent-resume/` first. It writes one only for an agent that is already set up on this machine:
   - Claude Code: `SessionStart` in `~/.claude/settings.json`
   - Codex: `SessionStart` in `~/.codex/hooks.json`

@@ -2,7 +2,8 @@
 """Install Agent resume: the mod, its shortcut and the SessionStart hooks.
 
 - copies mods/agent-resume into the Herdr app's mods folder;
-- adds Ctrl+Shift+R (`mod.open:agent-resume`) to keys.json, refusing a key already in use;
+- adds Ctrl+Shift+R (`mod.open:agent-resume`) to keys.json, refusing a key already in use
+  (`--key` picks another, `--key none` binds none; the choice is kept for --update);
 - appends a SessionStart hook next to the hooks already there, backing each file up first:
   Claude Code (~/.claude/settings.json), Codex (~/.codex/hooks.json),
   Grok (~/.grok/hooks/agent-resume.json), Antigravity (~/.gemini/config/hooks.json),
@@ -29,6 +30,7 @@ MOD_NAME = "agent-resume"
 PACKAGE = "herdr-agent-resume"
 VERSION = "0.4.2"
 MARKER = ".agent-resume-install.json"
+ACTION = f"mod.open:{MOD_NAME}"
 FILES = ("main.js", "summary.js", "mod.json", "agent_resume.py")
 GENERATED = {"gpui-kit.d.ts", "jsconfig.json", "__pycache__"}
 HOOK_TAG = "agent_resume.py' hook "
@@ -92,19 +94,29 @@ def merge_keys(existing, snippet):
         target = merged.setdefault(section, {})
         for key, action in bindings.items():
             if key in target and target[key] != action:
-                raise ValueError(f"Shortcut conflict in {section}: {key} is {target[key]!r}. No files changed.")
+                raise ValueError(f"Shortcut conflict in {section}: {key} is {target[key]!r}. "
+                                 "Pick another with --key, or --key none. No files changed.")
             target[key] = action
     return merged
 
 
-def remove_keys(existing, snippet):
+def remove_keys(existing):
+    """`existing` without any binding to this mod; keys someone rebound stay."""
     merged = json.loads(json.dumps(existing))
-    for section, bindings in snippet.items():
-        target = merged.get(section, {})
-        for key, action in bindings.items():
-            if target.get(key) == action:
-                del target[key]
+    for bindings in merged.values():
+        if isinstance(bindings, dict):
+            for key in [k for k, action in bindings.items() if action == ACTION]:
+                del bindings[key]
     return merged
+
+
+def key_snippet(key):
+    return {"global": {key: ACTION}} if key else {}
+
+
+def key_name(key):
+    """ctrl-shift-r -> Ctrl+Shift+R, for messages."""
+    return "+".join(part.capitalize() if len(part) > 1 else part.upper() for part in key.split("-")) if key else None
 
 
 def hook_command(script, agent):
@@ -402,12 +414,15 @@ def main():
     parser.add_argument("--auto", action="store_true", help="restored terminals start their agent again by themselves (fish, bash, zsh)")
     parser.add_argument("--no-auto", action="store_true", help="take the startup lines --auto added out again")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--key", help="shortcut that opens the resume pass, e.g. ctrl-shift-u; `none` for no shortcut "
+                                      "(default: the one installed before, else ctrl-shift-r)")
     args = parser.parse_args()
     app = args.app_home.expanduser().resolve()
     home = args.home.expanduser().resolve()
     env = {**os.environ, "HERDR_APP_HOME": str(app)}
     keys_path = app / "keys.json"
-    snippet = json.loads((ROOT / "keys.json").read_text())
+    defaults = json.loads((ROOT / "keys.json").read_text())["global"]
+    installed_key = next(k for k, action in defaults.items() if action == ACTION)
     source = ROOT / "mods" / MOD_NAME
     destination = app / "mods" / MOD_NAME
     script = destination / "agent_resume.py"
@@ -419,21 +434,26 @@ def main():
     extensions = extension_changes(home, script, args.uninstall)
     extension_files = [(path, text) for _, path, text in extensions]
 
+    marker_path = destination / MARKER
+    marker = json.loads(marker_path.read_text()) if marker_path.exists() else None
+    if marker is not None and "key" in marker:
+        installed_key = marker["key"]
+    key = installed_key if args.key is None else None if args.key.lower() == "none" else args.key.lower()
+
     if args.uninstall:
-        keys = remove_keys(json.loads(keys_path.read_text()), snippet)
+        keys = remove_keys(json.loads(keys_path.read_text()))
         edited = [(path, hook_edit(kind, config, None, True)) for _, path, config, kind in configs]
     else:
-        keys = merge_keys(json.loads(keys_path.read_text()), snippet)
+        keys = merge_keys(remove_keys(json.loads(keys_path.read_text())), key_snippet(key))
         edited = [(path, hook_edit(kind, config, hook_command(script, name), False)) for name, path, config, kind in configs]
         if destination.exists():
-            marker_path = destination / MARKER
-            if not args.update or not marker_path.exists():
+            if not args.update or marker is None:
                 raise ValueError(f"{destination} already exists. Use --update only for this installer's own files.")
-            verify_installed(destination, json.loads(marker_path.read_text()))
+            verify_installed(destination, marker)
         subprocess.run(["herdr-app", "check", str(source)], env=env, check=True)
     changes = [(path, new) for (path, new), (_, _, old, _) in zip(edited, configs) if new != old]
 
-    print(f"Mod: {destination}\nShortcut: Ctrl+Shift+R")
+    print(f"Mod: {destination}\nShortcut: {key_name(key) or 'none'}")
     for path, _ in changes:
         print(f"Hook: {path}")
     for agent, path, text in extensions:
@@ -480,7 +500,7 @@ def main():
         for filename in FILES:
             shutil.copy2(source / filename, stage / filename)
         atomic_json(stage / MARKER, {
-            "package": PACKAGE, "version": VERSION,
+            "package": PACKAGE, "version": VERSION, "key": key,
             "files": {filename: digest(source / filename) for filename in FILES},
         })
         if destination.exists():
@@ -540,9 +560,11 @@ def main():
         print("Grok runs the new hook after you trust the folder.")
     print("New sessions pick up the hook when they start; running ones keep their old hooks.")
     if any(text and BEGIN in text for _, text in shells):
-        print("Restored terminals now start their agent again by themselves; Ctrl+Shift+R still works for the rest.")
+        rest = f"; {key_name(key)} still works for the rest" if key else ""
+        print(f"Restored terminals now start their agent again by themselves{rest}.")
     elif args.no_auto:
-        print("Restored terminals no longer start their agent by themselves; press Ctrl+Shift+R.")
+        retry = f"press {key_name(key)}" if key else f"run python3 '{script}' resume"
+        print(f"Restored terminals no longer start their agent by themselves; {retry}.")
 
 
 if __name__ == "__main__":

@@ -27,11 +27,55 @@ class KeyTests(unittest.TestCase):
         merged = installer.merge_keys(existing, KEY)
         self.assertEqual(merged["global"], {"ctrl-shift-f": "layout.toggle:panel", "ctrl-shift-r": "mod.open:agent-resume"})
         self.assertEqual(installer.merge_keys(merged, KEY), merged)
-        self.assertEqual(installer.remove_keys(merged, KEY), existing)
+        self.assertEqual(installer.remove_keys(merged), existing)
 
     def test_uninstall_leaves_a_key_someone_rebound(self):
         rebound = {"global": {"ctrl-shift-r": "something.else"}}
-        self.assertEqual(installer.remove_keys(rebound, KEY), rebound)
+        self.assertEqual(installer.remove_keys(rebound), rebound)
+
+    def test_chosen_key_is_kept_by_update_and_removed_by_uninstall(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home, app = Path(directory) / "home", Path(directory) / "app"
+            home.mkdir()
+            app.mkdir()
+            taken = {"global": {"ctrl-shift-r": "mod.open:markdown-reader-pane"}}
+            (app / "keys.json").write_text(json.dumps(taken))
+            base = ["install.py", "--home", str(home), "--app-home", str(app), "--no-adopt"]
+            marker = app / "mods" / "agent-resume" / installer.MARKER
+            keys = lambda: json.loads((app / "keys.json").read_text())["global"]
+            with mock.patch.object(installer.subprocess, "run"), redirect_stdout(StringIO()):
+                with mock.patch("sys.argv", base), self.assertRaisesRegex(ValueError, "--key none"):
+                    installer.main()
+                with mock.patch("sys.argv", base + ["--key", "Ctrl-Shift-U"]):
+                    installer.main()
+                self.assertEqual(keys(), {**taken["global"], "ctrl-shift-u": "mod.open:agent-resume"})
+                with mock.patch("sys.argv", base + ["--update"]):
+                    installer.main()
+                self.assertEqual(json.loads(marker.read_text())["key"], "ctrl-shift-u")
+                self.assertEqual(keys(), {**taken["global"], "ctrl-shift-u": "mod.open:agent-resume"})
+                with mock.patch("sys.argv", base + ["--update", "--key", "none"]):
+                    installer.main()
+                self.assertEqual(keys(), taken["global"])
+                self.assertIsNone(json.loads(marker.read_text())["key"])
+                with mock.patch("sys.argv", base + ["--update"]):
+                    installer.main()
+                self.assertEqual(keys(), taken["global"])
+                with mock.patch("sys.argv", base + ["--uninstall"]):
+                    installer.main()
+                self.assertEqual(keys(), taken["global"])
+
+    def test_retry_hint_names_the_installed_key(self):
+        ar_spec = importlib.util.spec_from_file_location("ar", Path(__file__).parents[1] / "mods/agent-resume/agent_resume.py")
+        ar = importlib.util.module_from_spec(ar_spec)
+        ar_spec.loader.exec_module(ar)
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "agent_resume.py"
+            with mock.patch.object(ar, "__file__", str(script)):
+                self.assertEqual(ar.retry_hint(), "Ctrl+Shift+R tries again.")
+                (Path(directory) / installer.MARKER).write_text(json.dumps({"key": "ctrl-shift-u"}))
+                self.assertEqual(ar.retry_hint(), "Ctrl+Shift+U tries again.")
+                (Path(directory) / installer.MARKER).write_text(json.dumps({"key": None}))
+                self.assertEqual(ar.retry_hint(), f"`python3 '{script}' resume` tries again.")
 
 
 class HookTests(unittest.TestCase):
