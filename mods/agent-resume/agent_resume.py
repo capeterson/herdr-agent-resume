@@ -6,7 +6,7 @@ restart) back as a shell in its last folder, but never runs the program again.
 This brings agent sessions back, the way the Herdr TUI did:
 
   hook <agent>        note the session on its terminal (an `agent-resume` label
-                      kept by herdr-core). Agents: claude, codex, grok, agy, pi, kiro
+                      kept by herdr-core). Agents: claude, codex, grok, agy, pi, omp, kiro
   resume              type that agent's resume command into each terminal that
                       lost its agent and sits at a shell
   status              what `resume` would do, without typing anything
@@ -42,6 +42,7 @@ AGENTS = {
     "grok": {"names": {"grok"}, "argv": lambda session: ["grok", "--resume", session]},
     "agy": {"names": {"agy"}, "argv": lambda session: ["agy", "--conversation", session]},
     "pi": {"names": {"pi"}, "argv": lambda session: ["pi", "--session", session]},
+    "omp": {"names": {"omp"}, "argv": lambda session: ["omp", f"--resume={session}"]},
     "kiro": {"names": {"kiro", "kiro-cli", "kiro-cli-chat"},
              "argv": lambda session: ["kiro-cli", "chat", "--v3", "--resume-id", session]},
 }
@@ -93,6 +94,20 @@ KEEP_FLAGS = {
         "--append-system-prompt": "+", "--extension": "+", "-e": "+", "--skill": "+",
         "--prompt-template": "+", "--theme": "+",
     },
+    # Never --api-key (a secret in a label), nor flags that pick, start or bound one run:
+    # --resume, --continue, --goal, --print, --mode, --cwd, --max-time, --max-cost, ...
+    "omp": {
+        "--prewalk": 0, "--no-prewalk": 0, "--no-tools": 0, "--no-judge": 0, "--no-spotlight": 0,
+        "--offline": 0, "--no-lsp": 0, "--no-pty": 0, "--hide-thinking": 0, "--advisor": 0,
+        "--external-thinking": 0, "--no-extensions": 0, "--no-skills": 0, "--no-rules": 0,
+        "--no-context-files": 0, "--no-title": 0, "--auto-approve": 0, "--allow-home": 0,
+        "--model": 1, "--smol": 1, "--slow": 1, "--plan": 1, "--prewalk-into": 1, "--provider": 1,
+        "--system-prompt": 1, "--system-prompt-template": 1, "--append-system-prompt": 1,
+        "--profile": 1, "--config": 1, "--add-dir": 1, "--session-dir": 1, "--models": 1,
+        "--tools": 1, "--thinking": 1, "--service-tier": 1, "--hook": 1, "--extension": 1, "-e": 1,
+        "--skills": 1, "--approval-mode": 1, "--warn-cost": 1, "--spinner-interval": 1,
+        "--max-fps": 1, "--motion": 1,
+    },
     "kiro": {
         "--trust-all-tools": 0, "-a": 0,
         "--agent": 1, "--model": 1, "--effort": 1, "--trust-tools": 1, "--mode": 1,
@@ -100,7 +115,7 @@ KEEP_FLAGS = {
 }
 # The variable that points an agent at another config folder (a second account, say).
 # A session started under one is only found again under the same one.
-HOME_VARS = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME"}
+HOME_VARS = {"claude": "CLAUDE_CONFIG_DIR", "codex": "CODEX_HOME", "omp": "PI_CODING_AGENT_DIR"}
 MAX_ARGS = 64
 MAX_ARG_LEN = 1024
 AGENT_NAMES = set().union(*(a["names"] for a in AGENTS.values()))
@@ -1151,11 +1166,11 @@ def main(argv):
                 outcome = f"error: {error}"
             if outcome != "not in a Herdr terminal":
                 log("hook", agent=agent, terminal=os.environ.get("HC_TERMINAL_ID"), outcome=outcome)
-        # Antigravity reads stdout as JSON. Pi's extension reads this one line and
-        # shows it to nobody. Every other agent would treat stdout as context, so stay quiet.
+        # Antigravity reads stdout as JSON. The Pi and omp extensions read this one line and
+        # show it to nobody. Every other agent would treat stdout as context, so stay quiet.
         if agent == "agy":
             sys.stdout.write("{}\n")
-        elif agent == "pi":
+        elif agent in ("pi", "omp"):
             sys.stdout.write(outcome + "\n")
         return 0
     if command_name == "watch":

@@ -181,6 +181,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(ar.command(label(agent="grok")), f"cd '/work' && grok --resume {SID}")
         self.assertEqual(ar.command(label(agent="agy")), f"cd '/work' && agy --conversation {SID}")
         self.assertEqual(ar.command(label(agent="pi")), f"cd '/work' && pi --session {SID}")
+        self.assertEqual(ar.command(label(agent="omp")), f"cd '/work' && omp --resume={SID}")
         self.assertTrue(ar.command(label(agent="kiro", session="sess_0123abcd")).endswith("launch-kiro sess_0123abcd"))
         self.assertTrue(ar.valid_session("custom.id_1"))
 
@@ -238,9 +239,19 @@ class FlagTests(unittest.TestCase):
         self.assertEqual(ar.launch_flags("pi", ["--continue", "--model", "gpt-5", "--session", SID,
                                                 "--thinking", "high", "--no-session", "-p", "hi"]),
                          [["--model", "gpt-5"], ["--thinking", "high"]])
+        self.assertEqual(ar.launch_flags("omp", ["--resume=" + SID, "--model=opus", "--api-key", "sk-secret",
+                                                 "--thinking", "high", "--profile", "work", "--goal", "ship it",
+                                                 "--mode", "rpc", "-e", "/x.ts", "--auto-approve", "-p", "hi"]),
+                         [["--model=opus"], ["--thinking", "high"], ["--profile", "work"], ["-e", "/x.ts"],
+                          ["--auto-approve"]])
         self.assertEqual(ar.launch_flags("kiro", ["chat", "--resume-id", SID, "--model", "claude",
                                                   "--trust-all-tools", "--no-interactive", "hello"]),
                          [["--model", "claude"], ["--trust-all-tools"]])
+
+    def test_omp_under_its_own_agent_folder(self):
+        lbl = {**label(agent="omp"), "env": {"PI_CODING_AGENT_DIR": "/h/.omp2/agent"}, "args": ["--model", "opus"]}
+        self.assertEqual(ar.command(lbl), f"cd '/work' && env PI_CODING_AGENT_DIR=/h/.omp2/agent omp --resume={SID} --model opus")
+        self.assertEqual(ar.read_label({ar.LABEL: json.dumps(lbl)})["env"], {"PI_CODING_AGENT_DIR": "/h/.omp2/agent"})
 
 
 class FailureTests(unittest.TestCase):
@@ -555,6 +566,10 @@ class HookTests(unittest.TestCase):
         self.assertEqual(outcome, "saved")
         remember.assert_called_once_with("t7", "pi", SID, "/work", "/t/x.jsonl", 40, 30, home=None)
 
+        outcome, remember = self.saved("omp", self.payload(), env={"PI_CODING_AGENT_DIR": "/h/.omp2/agent"})
+        self.assertEqual(outcome, "saved")
+        remember.assert_called_once_with("t7", "omp", SID, "/work", "/t/x.jsonl", 40, 30, home="/h/.omp2/agent")
+
         outcome, remember = self.saved("kiro", json.dumps({
             "hook_event_name": "SessionStart", "session_id": "sess_" + SID, "cwd": "/proj"}))
         self.assertEqual(outcome, "saved")
@@ -587,7 +602,7 @@ class HookTests(unittest.TestCase):
         with mock.patch.object(ar, "hook", return_value="saved"), \
              mock.patch.object(ar, "log"), \
              mock.patch("sys.stdin", StringIO("{}")):
-            for agent, expected in (("claude", ""), ("agy", "{}\n"), ("pi", "saved\n")):
+            for agent, expected in (("claude", ""), ("agy", "{}\n"), ("pi", "saved\n"), ("omp", "saved\n")):
                 with mock.patch("sys.stdout", new_callable=StringIO) as out:
                     self.assertEqual(ar.main(["agent_resume.py", "hook", agent]), 0)
                 self.assertEqual(out.getvalue(), expected, agent)

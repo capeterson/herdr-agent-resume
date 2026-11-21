@@ -111,22 +111,26 @@ class OtherAgentHookTests(unittest.TestCase):
                         self.assertTrue(all(call.args[0][0] == "herdr-app" for call in run.call_args_list))
                     self.assertFalse((home / ".kiro/hooks/agent-resume.json").exists())
 
-    def test_pi_extension_points_at_the_script(self):
-        text = installer.pi_extension("/app/mods/agent-resume/agent_resume.py")
-        self.assertIn('"/app/mods/agent-resume/agent_resume.py"', text)
-        self.assertNotIn("__SCRIPT__", text)
-        self.assertIn("hook\", \"pi\"", text)
-        with tempfile.TemporaryDirectory() as directory:
-            home = Path(directory)
-            (home / ".pi" / "agent").mkdir(parents=True)
-            added = installer.pi_changes(home, "/app/mods/agent-resume/agent_resume.py", False)
-            installer.apply_shell(added)
-            path = home / ".pi" / "agent" / "extensions" / "herdr-agent-resume.js"
-            self.assertEqual(path.read_text(), text)
-            self.assertEqual(installer.pi_changes(home, "/app/mods/agent-resume/agent_resume.py", False), [])
-            removed = installer.pi_changes(home, "/app/mods/agent-resume/agent_resume.py", True)
-            installer.apply_shell(removed)
-            self.assertFalse(path.exists())
+    def test_pi_and_omp_extensions_point_at_the_script(self):
+        script = "/app/mods/agent-resume/agent_resume.py"
+        for agent, folder in (("pi", ".pi"), ("omp", ".omp")):
+            with self.subTest(agent=agent), tempfile.TemporaryDirectory() as directory:
+                text = installer.extension_text(agent, script)
+                self.assertIn(f'"{script}"', text)
+                self.assertNotIn("__SCRIPT__", text)
+                self.assertIn(f"hook\", \"{agent}\"", text)
+                home = Path(directory)
+                (home / folder / "agent").mkdir(parents=True)
+                added = installer.extension_changes(home, script, False)
+                path = home / folder / "agent" / "extensions" / "herdr-agent-resume.js"
+                self.assertEqual(added, [(agent, path, text)])
+                installer.apply_shell([(p, t) for _, p, t in added])
+                self.assertEqual(path.read_text(), text)
+                self.assertEqual(installer.extension_changes(home, script, False), [])
+                removed = installer.extension_changes(home, script, True)
+                self.assertEqual(removed, [(agent, path, None)])
+                installer.apply_shell([(p, t) for _, p, t in removed])
+                self.assertFalse(path.exists())
 
     def test_only_agents_set_up_on_this_machine(self):
         with tempfile.TemporaryDirectory() as directory:

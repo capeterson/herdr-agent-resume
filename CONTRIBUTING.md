@@ -84,7 +84,8 @@ Some guidelines:
 - No network requests, and no changes to files outside the app home,
   `~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.grok/hooks/agent-resume.json`,
   `~/.gemini/config/hooks.json`, `~/.kiro/hooks/agent-resume.json`,
-  `~/.pi/agent/extensions/herdr-agent-resume.js` and (with `--auto`) the
+  `~/.pi/agent/extensions/herdr-agent-resume.js`,
+  `~/.omp/agent/extensions/herdr-agent-resume.js` and (with `--auto`) the
   shell startup files, always backed up first.
 - Update `README.md` and `RECIPE.md` when users would notice the change.
 
